@@ -1,0 +1,458 @@
+"""
+Dual Momentum Strategy for AuronAI.
+
+Based on Gary Antonacci's research combining absolute and relative momentum
+for robust returns with lower risk.
+
+References:
+- Antonacci, G. (2014). "Dual Momentum Investing: An Innovative Strategy 
+  for Higher Returns with Lower Risk"
+- Paper: "Risk Premia Harvesting Through Dual Momentum" (2012)
+"""
+
+from datetime import datetime
+from typing import Dict, List, Optional
+from dataclasses import dataclass
+
+import pandas as pd
+import numpy as np
+
+from auronai.strategies.base_strategy import BaseStrategy, StrategyParams, MarketRegime
+from auronai.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class DualMomentumParams(StrategyParams):
+    """
+    Parameters for Dual Momentum strategy.
+    
+    These are FIXED parameters based on academic research.
+    No optimization should be performed on these values.
+    
+    Attributes:
+        lookback_period: Days to look back for momentum calculation (252 = 12 months)
+        top_n: Number of top momentum assets to hold
+        rebalance_frequency: How often to rebalance ('monthly')
+    """
+    lookback_period: int = 252  # 12 months (Antonacci standard)
+    top_n: int = 5  # Hold top 5 assets
+    rebalance_frequency: str = 'monthly'
+    
+    def __post_init__(self):
+        """Validate Dual Momentum specific parameters."""
+        super().__post_init__()
+        
+        if self.lookback_period < 1:
+            raise ValueError("lookback_period must be >= 1")
+        if self.top_n < 1:
+            raise ValueError("top_n must be >= 1")
+        if self.rebalance_frequency not in ['monthly', 'weekly']:
+            raise ValueError("rebalance_frequency must be 'monthly' or 'weekly'")
+
+
+class DualMomentumStrategy(BaseStrategy):
+    """
+    Dual Momentum strategy implementation.
+    
+    Combines two types of momentum:
+    1. Absolute Momentum: Compare asset return vs risk-free rate (cash)
+    2. Relative Momentum: Compare assets against each other
+    
+    Algorithm:
+    1. Calculate 12-month momentum for all assets
+    2. Filter assets with positive absolute momentum (> 0)
+    3. Rank remaining assets by relative momentum
+    4. Select top N assets
+    5. Hold for 1 month, then rebalance
+    
+    This strategy:
+    - Uses FIXED parameters (no optimization)
+    - Rebalances monthly (not daily)
+    - Only goes long (no shorting)
+    - Stays in cash if no positive momentum
+    """
+    
+    def __init__(self, params: Optional[DualMomentumParams] = None):
+        """
+        Initialize Dual Momentum strategy.
+        
+        Args:
+            params: Strategy parameters (uses defaults if None)
+        """
+        if params is None:
+            params = DualMomentumParams()
+        
+        super().__init__(params)
+        
+        # Cast to DualMomentumParams for type safety
+        self.params: DualMomentumParams = params
+        
+        # State tracking
+        self.last_rebalance: Optional[datetime] = None
+        self.current_positions: List[str] = []
+        
+        logger.info(
+            f"DualMomentumStrategy initialized: "
+            f"lookback={self.params.lookback_period}d, "
+            f"top_n={self.params.top_n}, "
+            f"rebalance={self.params.rebalance_frequency}"
+        )
+    
+    @property
+    def name(self) -> str:
+        """Strategy name."""
+        return "Dual Momentum"
+    
+    @property
+    def description(self) -> str:
+        """Strategy description."""
+        return (
+            "Dual Momentum strategy combining absolute and relative momentum. "
+            "Based on Gary Antonacci's research. Uses 12-month lookback, "
+            "monthly rebalancing, and only trades assets with positive momentum."
+        )
+    
+    def get_params(self) -> Dict[str, any]:
+        """Return strategy parameters."""
+        return {
+            'lookback_period': self.params.lookback_period,
+            'top_n': self.params.top_n,
+            'rebalance_frequency': self.params.rebalance_frequency,
+            'risk_budget': self.params.risk_budget,
+        }
+    
+    def _should_rebalance(self, current_date: datetime) -> bool:
+        """
+        Check if rebalancing is needed.
+        
+        Args:
+            current_date: Current simulation date
+        
+        Returns:
+            True if rebalancing should occur
+        """
+        # Ensure current_date is datetime (not string)
+        if isinstance(current_date, str):
+            current_date = pd.to_datetime(current_date)
+        
+        if self.last_rebalance is None:
+            return True
+        
+        if self.params.rebalance_frequency == 'monthly':
+            # Rebalance if month changed
+            return current_date.month != self.last_rebalance.month
+        elif self.params.rebalance_frequency == 'weekly':
+            # Rebalance if week changed
+            days_diff = (current_date - self.last_rebalance).days
+            return days_diff >= 7
+        
+        return False
+    
+    def _calculate_momentum(
+        self,
+        features: pd.DataFrame,
+        current_date: datetime
+    ) -> Dict[str, float]:
+        """
+        Calculate momentum scores for all symbols.
+        
+        Momentum = (current_price - past_price) / past_price
+        
+        Args:
+            features: DataFrame with OHLCV data for all symbols
+            current_date: Current simulation date
+        
+        Returns:
+            Dictionary mapping symbol -> momentum score
+        """
+        momentum_scores = {}
+        
+        # Ensure current_date is datetime (not string)
+        if isinstance(current_date, str):
+            current_date = pd.to_datetime(current_date)
+        
+        # Check if features has MultiIndex (date, symbol) or just date index
+        if isinstance(features.index, pd.MultiIndex):
+            # MultiIndex case: (date, symbol)
+            # Get unique symbols from index level 1
+            symbols = features.index.get_level_values(1).unique()
+            
+            for symbol in symbols:
+                try:
+                    # Filter data for this symbol
+                    symbol_data = features.xs(symbol, level=1).copy()
+                    
+                    # symbol_data now has date as index
+                    if not isinstance(symbol_data.index, pd.DatetimeIndex):
+                        try:
+                            symbol_data.index = pd.to_datetime(symbol_data.index)
+                        except Exception as e:
+                            logger.warning(f"Could not convert index to datetime for {symbol}: {e}")
+                            continue
+                    
+                    # Find current date index
+                    if current_date not in symbol_data.index:
+                        # Use nearest date
+                        idx = symbol_data.index.get_indexer([current_date], method='nearest')[0]
+                        if idx < 0 or idx >= len(symbol_data):
+                            logger.debug(f"No data for {symbol} at {current_date}")
+                            continue
+                        current_idx = idx
+                    else:
+                        current_idx = symbol_data.index.get_loc(current_date)
+                    
+                    # Check if we have enough history
+                    if current_idx < self.params.lookback_period:
+                        logger.debug(
+                            f"Insufficient history for {symbol}: "
+                            f"{current_idx} < {self.params.lookback_period}"
+                        )
+                        continue
+                    
+                    # Get current and past prices
+                    current_price = symbol_data.iloc[current_idx]['close']
+                    past_price = symbol_data.iloc[current_idx - self.params.lookback_period]['close']
+                    
+                    # Calculate momentum
+                    if past_price == 0 or pd.isna(past_price) or pd.isna(current_price):
+                        logger.debug(f"Invalid prices for {symbol}")
+                        continue
+                    
+                    momentum = (current_price - past_price) / past_price
+                    
+                    # Validate momentum is finite
+                    if not np.isfinite(momentum):
+                        logger.warning(f"Non-finite momentum for {symbol}: {momentum}")
+                        continue
+                    
+                    momentum_scores[symbol] = momentum
+                    logger.debug(f"{symbol}: momentum = {momentum:.2%}")
+                    
+                except Exception as e:
+                    logger.warning(f"Error calculating momentum for {symbol}: {e}")
+                    continue
+        
+        elif 'symbol' in features.columns:
+            # Column-based case: symbol is a column
+            symbols = features['symbol'].unique()
+            
+            for symbol in symbols:
+                try:
+                    # Filter data for this symbol
+                    symbol_data = features[features['symbol'] == symbol].copy()
+                    
+                    # Sort by date
+                    symbol_data = symbol_data.sort_index()
+                    
+                    # Ensure index is datetime
+                    if not isinstance(symbol_data.index, pd.DatetimeIndex):
+                        try:
+                            symbol_data.index = pd.to_datetime(symbol_data.index)
+                        except Exception as e:
+                            logger.warning(f"Could not convert index to datetime for {symbol}: {e}")
+                            continue
+                    
+                    # Find current date index
+                    if current_date not in symbol_data.index:
+                        # Use nearest date
+                        idx = symbol_data.index.get_indexer([current_date], method='nearest')[0]
+                        if idx < 0 or idx >= len(symbol_data):
+                            logger.debug(f"No data for {symbol} at {current_date}")
+                            continue
+                        current_idx = idx
+                    else:
+                        current_idx = symbol_data.index.get_loc(current_date)
+                    
+                    # Check if we have enough history
+                    if current_idx < self.params.lookback_period:
+                        logger.debug(
+                            f"Insufficient history for {symbol}: "
+                            f"{current_idx} < {self.params.lookback_period}"
+                        )
+                        continue
+                    
+                    # Get current and past prices
+                    current_price = symbol_data.iloc[current_idx]['close']
+                    past_price = symbol_data.iloc[current_idx - self.params.lookback_period]['close']
+                    
+                    # Calculate momentum
+                    if past_price == 0 or pd.isna(past_price) or pd.isna(current_price):
+                        logger.debug(f"Invalid prices for {symbol}")
+                        continue
+                    
+                    momentum = (current_price - past_price) / past_price
+                    
+                    # Validate momentum is finite
+                    if not np.isfinite(momentum):
+                        logger.warning(f"Non-finite momentum for {symbol}: {momentum}")
+                        continue
+                    
+                    momentum_scores[symbol] = momentum
+                    logger.debug(f"{symbol}: momentum = {momentum:.2%}")
+                    
+                except Exception as e:
+                    logger.warning(f"Error calculating momentum for {symbol}: {e}")
+                    continue
+        
+        else:
+            # Single symbol case: no symbol column, just date index
+            logger.warning("No symbol information found in features DataFrame")
+            return momentum_scores
+                # Calculate momentum
+                if past_price == 0 or pd.isna(past_price) or pd.isna(current_price):
+                    logger.debug(f"Invalid prices for {symbol}")
+                    continue
+                
+                momentum = (current_price - past_price) / past_price
+                
+                # Validate momentum is finite
+                if not np.isfinite(momentum):
+                    logger.warning(f"Non-finite momentum for {symbol}: {momentum}")
+                    continue
+                
+                momentum_scores[symbol] = momentum
+                logger.debug(f"{symbol}: momentum = {momentum:.2%}")
+                
+            except Exception as e:
+                logger.warning(f"Error calculating momentum for {symbol}: {e}")
+                continue
+        
+        return momentum_scores
+    
+    def generate_signals(
+        self,
+        features: pd.DataFrame,
+        regime: MarketRegime,
+        current_date: datetime
+    ) -> Dict[str, float]:
+        """
+        Generate trading signals using Dual Momentum logic.
+        
+        Steps:
+        1. Check if rebalancing is needed
+        2. Calculate momentum scores for all symbols
+        3. Apply absolute momentum filter (> 0)
+        4. Rank by relative momentum
+        5. Select top N assets
+        6. Return equal-weighted portfolio
+        
+        Args:
+            features: DataFrame with OHLCV + indicators for all symbols
+            regime: Current market regime (not used in this strategy)
+            current_date: Current simulation date
+        
+        Returns:
+            Dictionary mapping symbol -> target weight
+            Empty dict if no rebalancing needed or no positive momentum
+        """
+        # Ensure current_date is datetime (not string)
+        if isinstance(current_date, str):
+            current_date = pd.to_datetime(current_date)
+        
+        # Check if rebalancing is needed
+        if not self._should_rebalance(current_date):
+            logger.debug(f"No rebalancing needed at {current_date}")
+            return {}
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"DUAL MOMENTUM REBALANCE: {current_date.date()}")
+        logger.info(f"{'='*60}")
+        
+        # Calculate momentum scores
+        momentum_scores = self._calculate_momentum(features, current_date)
+        
+        if not momentum_scores:
+            logger.warning("No momentum scores calculated - staying in cash")
+            self.current_positions = []
+            self.last_rebalance = current_date
+            return {}
+        
+        logger.info(f"Calculated momentum for {len(momentum_scores)} symbols")
+        
+        # Apply absolute momentum filter (only positive momentum)
+        positive_momentum = {
+            symbol: score
+            for symbol, score in momentum_scores.items()
+            if score > 0
+        }
+        
+        logger.info(
+            f"Absolute momentum filter: {len(positive_momentum)}/{len(momentum_scores)} "
+            f"symbols with positive momentum"
+        )
+        
+        if not positive_momentum:
+            logger.info("No symbols with positive momentum - staying in cash")
+            self.current_positions = []
+            self.last_rebalance = current_date
+            return {}
+        
+        # Rank by relative momentum (descending)
+        ranked_assets = sorted(
+            positive_momentum.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:self.params.top_n]
+        
+        logger.info(f"Top {len(ranked_assets)} momentum assets:")
+        for symbol, score in ranked_assets:
+            logger.info(f"  {symbol}: {score:.2%}")
+        
+        # Generate equal-weighted portfolio
+        weight_per_asset = 1.0 / len(ranked_assets)
+        target_weights = {
+            symbol: weight_per_asset
+            for symbol, _ in ranked_assets
+        }
+        
+        # Update state
+        self.current_positions = list(target_weights.keys())
+        self.last_rebalance = current_date
+        
+        logger.info(f"Target portfolio: {len(target_weights)} positions @ {weight_per_asset:.1%} each")
+        
+        return target_weights
+    
+    def risk_model(
+        self,
+        target_weights: Dict[str, float],
+        features: pd.DataFrame,
+        current_portfolio: Dict[str, float]
+    ) -> Dict[str, float]:
+        """
+        Apply risk constraints to target weights.
+        
+        For Dual Momentum, we use simple equal weighting with a risk budget cap.
+        
+        Args:
+            target_weights: Raw weights from generate_signals()
+            features: Current market features
+            current_portfolio: Current positions
+        
+        Returns:
+            Adjusted weights after risk constraints
+        """
+        if not target_weights:
+            return {}
+        
+        # Apply risk budget constraint
+        total_weight = sum(target_weights.values())
+        
+        if total_weight > self.params.risk_budget:
+            # Scale down to respect risk budget
+            scale_factor = self.params.risk_budget / total_weight
+            adjusted_weights = {
+                symbol: weight * scale_factor
+                for symbol, weight in target_weights.items()
+            }
+            
+            logger.info(
+                f"Risk budget constraint applied: "
+                f"scaled from {total_weight:.1%} to {self.params.risk_budget:.1%}"
+            )
+            
+            return adjusted_weights
+        
+        return target_weights

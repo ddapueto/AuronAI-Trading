@@ -1,0 +1,103 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+auronai.log
+
+# Trading Results
+trading_results.json
+trading_results_pro.json
+backtest_results.json
+trade_history.json
+
+# Charts and Outputs
+*.png
+*.jpg
+*.jpeg
+charts/
+outputs/
+
+# Data Cache
+.cache/
+*.pkl
+*.pickle
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets
+*.pem
+*.key
+secrets/
+.secrets.baseline
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+.hypothesis/
+.pytest_cache/
+.kiro/
+results/
+data/
+*.db
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+logs/
+models/
+.DS_Store
+.env
+uv.lock
