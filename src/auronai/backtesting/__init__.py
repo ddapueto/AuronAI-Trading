@@ -13,6 +13,12 @@ from auronai.backtesting.backtest_config import (
 )
 from auronai.backtesting.backtest_runner import BacktestRunner
 from auronai.backtesting.monte_carlo import MonteCarloResult, MonteCarloSimulator
+from auronai.backtesting.stress_testing import (
+    CRISIS_SCENARIOS,
+    CrisisScenario,
+    StressTestReport,
+    StressTester,
+)
 
 __all__ = [
     'RunManager',
@@ -23,4 +29,8 @@ __all__ = [
     'BacktestRunner',
     'MonteCarloSimulator',
     'MonteCarloResult',
+    'StressTester',
+    'StressTestReport',
+    'CrisisScenario',
+    'CRISIS_SCENARIOS',
 ]
