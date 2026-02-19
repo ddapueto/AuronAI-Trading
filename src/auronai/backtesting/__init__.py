@@ -13,6 +13,10 @@ from auronai.backtesting.backtest_config import (
 )
 from auronai.backtesting.backtest_runner import BacktestRunner
 from auronai.backtesting.monte_carlo import MonteCarloResult, MonteCarloSimulator
+from auronai.backtesting.sensitivity_analysis import (
+    SensitivityAnalyzer,
+    SensitivityReport,
+)
 from auronai.backtesting.stress_testing import (
     CRISIS_SCENARIOS,
     CrisisScenario,
@@ -33,4 +37,6 @@ __all__ = [
     'StressTestReport',
     'CrisisScenario',
     'CRISIS_SCENARIOS',
+    'SensitivityAnalyzer',
+    'SensitivityReport',
 ]
