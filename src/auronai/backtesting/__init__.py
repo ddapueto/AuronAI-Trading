@@ -12,6 +12,7 @@ from auronai.backtesting.backtest_config import (
     Trade
 )
 from auronai.backtesting.backtest_runner import BacktestRunner
+from auronai.backtesting.monte_carlo import MonteCarloResult, MonteCarloSimulator
 
 __all__ = [
     'RunManager',
@@ -19,5 +20,7 @@ __all__ = [
     'BacktestConfig',
     'BacktestResult',
     'Trade',
-    'BacktestRunner'
+    'BacktestRunner',
+    'MonteCarloSimulator',
+    'MonteCarloResult',
 ]
