@@ -42,6 +42,23 @@ class UniverseResponse(BaseModel):
     total: int
 
 
+class SymbolMetadataItem(BaseModel):
+    symbol: str
+    asset_type: str
+    sector: str
+    beta_estimate: float
+    min_volume: int
+    is_pdt_safe: bool
+    cfd_available: bool
+    leverage_warning: str | None = None
+
+
+class UniverseDetailedResponse(BaseModel):
+    categories: dict[str, list[str]]
+    total: int
+    metadata: dict[str, SymbolMetadataItem]
+
+
 # ── Account / Trading ───────────────────────────────────────────────────
 
 

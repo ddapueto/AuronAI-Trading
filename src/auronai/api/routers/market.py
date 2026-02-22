@@ -7,9 +7,12 @@ from auronai.api.schemas import (
     BarData,
     BarsResponse,
     QuoteResponse,
+    SymbolMetadataItem,
+    UniverseDetailedResponse,
     UniverseResponse,
 )
 from auronai.brokers.paper_broker import PaperBroker
+from auronai.data.symbol_universe import SYMBOL_METADATA, SYMBOL_UNIVERSE
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -82,3 +85,30 @@ async def get_symbol_universe(
     """Get the symbol universe by category."""
     total = sum(len(v) for v in universe.values())
     return UniverseResponse(categories=universe, total=total)
+
+
+@router.get(
+    "/universe/detailed",
+    response_model=UniverseDetailedResponse,
+)
+async def get_symbol_universe_detailed():
+    """Get the symbol universe with enriched metadata per symbol."""
+    total = sum(len(v) for v in SYMBOL_UNIVERSE.values())
+    metadata = {
+        sym: SymbolMetadataItem(
+            symbol=info.symbol,
+            asset_type=info.asset_type.value,
+            sector=info.sector,
+            beta_estimate=info.beta_estimate,
+            min_volume=info.min_volume,
+            is_pdt_safe=info.is_pdt_safe,
+            cfd_available=info.cfd_available,
+            leverage_warning=info.leverage_warning,
+        )
+        for sym, info in SYMBOL_METADATA.items()
+    }
+    return UniverseDetailedResponse(
+        categories=SYMBOL_UNIVERSE,
+        total=total,
+        metadata=metadata,
+    )
