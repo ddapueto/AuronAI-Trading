@@ -349,6 +349,252 @@ class TestOBV:
         assert obv is not None
 
 
+class TestADX:
+    """Test ADX calculation."""
+
+    def test_adx_calculation(self, sample_data):
+        """Test ADX with sample data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        adx = calculator.calculate_adx(sample_data)
+
+        assert adx is not None
+
+        # ADX should be between 0 and 100
+        adx_valid = adx.dropna()
+        if len(adx_valid) > 0:
+            assert (adx_valid >= 0).all()
+            assert (adx_valid <= 100).all()
+
+    def test_adx_insufficient_data(self, insufficient_data):
+        """Test ADX with insufficient data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        adx = calculator.calculate_adx(insufficient_data)
+
+        assert adx is None
+
+
+class TestVWAP:
+    """Test VWAP calculation."""
+
+    def test_vwap_calculation(self, sample_data):
+        """Test VWAP with sample data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        vwap = calculator.calculate_vwap(sample_data)
+
+        assert vwap is not None
+        assert len(vwap) == len(sample_data)
+
+        # VWAP should be within the price range
+        vwap_valid = vwap.dropna()
+        if len(vwap_valid) > 0:
+            assert vwap_valid.iloc[-1] > 0
+
+    def test_vwap_insufficient_data(self):
+        """Test VWAP with insufficient data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        dates = pd.date_range(start='2024-01-01', periods=1, freq='D')
+        data = pd.DataFrame({
+            'Open': [100],
+            'High': [102],
+            'Low': [99],
+            'Close': [101],
+            'Volume': [1000000],
+        }, index=dates)
+
+        vwap = calculator.calculate_vwap(data)
+
+        assert vwap is None
+
+
+class TestIchimoku:
+    """Test Ichimoku Cloud calculation."""
+
+    def test_ichimoku_calculation(self, sample_data):
+        """Test Ichimoku with sample data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        ichimoku = calculator.calculate_ichimoku(sample_data)
+
+        assert ichimoku is not None
+        assert 'tenkan' in ichimoku
+        assert 'kijun' in ichimoku
+        assert 'senkou_a' in ichimoku
+        assert 'senkou_b' in ichimoku
+        assert 'chikou' in ichimoku
+
+    def test_ichimoku_insufficient_data(self, insufficient_data):
+        """Test Ichimoku with insufficient data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        ichimoku = calculator.calculate_ichimoku(insufficient_data)
+
+        assert ichimoku is None
+
+
+class TestSupertrend:
+    """Test Supertrend calculation."""
+
+    def test_supertrend_calculation(self, sample_data):
+        """Test Supertrend with sample data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        st = calculator.calculate_supertrend(sample_data)
+
+        assert st is not None
+        assert 'supertrend' in st
+        assert 'direction' in st
+
+    def test_supertrend_direction_values(self, sample_data):
+        """Test Supertrend direction is +1 or -1."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        st = calculator.calculate_supertrend(sample_data)
+
+        assert st is not None
+        dir_valid = st['direction'].dropna()
+        if len(dir_valid) > 0:
+            assert set(dir_valid.unique()).issubset({1, -1})
+
+    def test_supertrend_insufficient_data(self, insufficient_data):
+        """Test Supertrend with insufficient data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        st = calculator.calculate_supertrend(insufficient_data)
+
+        assert st is None
+
+
+class TestKeltnerChannels:
+    """Test Keltner Channels calculation."""
+
+    def test_keltner_channels_calculation(self, sample_data):
+        """Test Keltner Channels with sample data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        kc = calculator.calculate_keltner_channels(sample_data)
+
+        assert kc is not None
+        assert 'upper' in kc
+        assert 'middle' in kc
+        assert 'lower' in kc
+
+    def test_keltner_channels_ordering(self, sample_data):
+        """Test that lower <= middle <= upper."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        kc = calculator.calculate_keltner_channels(sample_data)
+
+        assert kc is not None
+        valid_idx = kc['middle'].notna() & kc['upper'].notna() & kc['lower'].notna()
+        if valid_idx.any():
+            assert (kc['lower'][valid_idx] <= kc['middle'][valid_idx]).all()
+            assert (kc['middle'][valid_idx] <= kc['upper'][valid_idx]).all()
+
+    def test_keltner_channels_insufficient_data(self, insufficient_data):
+        """Test Keltner Channels with insufficient data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        kc = calculator.calculate_keltner_channels(insufficient_data)
+
+        assert kc is None
+
+
+class TestFibonacciRetracements:
+    """Test Fibonacci Retracement levels calculation."""
+
+    def test_fibonacci_calculation(self, sample_data):
+        """Test Fibonacci with sample data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        fib = calculator.calculate_fibonacci_retracements(sample_data)
+
+        assert fib is not None
+        assert '0.0' in fib
+        assert '0.236' in fib
+        assert '0.382' in fib
+        assert '0.5' in fib
+        assert '0.618' in fib
+        assert '0.786' in fib
+        assert '1.0' in fib
+
+    def test_fibonacci_level_ordering(self, sample_data):
+        """Test that Fibonacci levels are properly ordered (descending)."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        fib = calculator.calculate_fibonacci_retracements(sample_data)
+
+        assert fib is not None
+        # 0.0 is swing high, 1.0 is swing low
+        assert fib['0.0'] >= fib['0.236']
+        assert fib['0.236'] >= fib['0.382']
+        assert fib['0.382'] >= fib['0.5']
+        assert fib['0.5'] >= fib['0.618']
+        assert fib['0.618'] >= fib['0.786']
+        assert fib['0.786'] >= fib['1.0']
+
+    def test_fibonacci_swing_values(self, sample_data):
+        """Test that 0.0 is swing high and 1.0 is swing low."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        fib = calculator.calculate_fibonacci_retracements(
+            sample_data, period=120
+        )
+
+        assert fib is not None
+        recent = sample_data.iloc[-120:]
+        expected_high = float(recent['High'].max())
+        expected_low = float(recent['Low'].min())
+
+        assert np.isclose(fib['0.0'], expected_high)
+        assert np.isclose(fib['1.0'], expected_low)
+
+    def test_fibonacci_insufficient_data(self, insufficient_data):
+        """Test Fibonacci with insufficient data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        fib = calculator.calculate_fibonacci_retracements(
+            insufficient_data, period=120
+        )
+
+        assert fib is None
+
+
+class TestCMF:
+    """Test Chaikin Money Flow calculation."""
+
+    def test_cmf_calculation(self, sample_data):
+        """Test CMF with sample data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        cmf = calculator.calculate_cmf(sample_data)
+
+        assert cmf is not None
+
+    def test_cmf_bounds(self, sample_data):
+        """Test that CMF values are between -1 and 1."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        cmf = calculator.calculate_cmf(sample_data)
+
+        assert cmf is not None
+        cmf_valid = cmf.dropna()
+        if len(cmf_valid) > 0:
+            assert (cmf_valid >= -1).all()
+            assert (cmf_valid <= 1).all()
+
+    def test_cmf_insufficient_data(self, insufficient_data):
+        """Test CMF with insufficient data."""
+        calculator = TechnicalIndicators(advanced_mode=True)
+
+        cmf = calculator.calculate_cmf(insufficient_data)
+
+        assert cmf is None
+
+
 class TestAdvancedIndicators:
     """Test advanced indicators (Williams %R, CCI, ROC)."""
     
@@ -404,17 +650,25 @@ class TestCalculateAllIndicators:
         assert 'ema_20' in result
         assert 'ema_50' in result
         
-        # Should NOT have advanced indicators
+        # OBV is always calculated (basic indicator)
+        assert 'obv' in result
+
+        # Should NOT have advanced-only indicators
         assert 'stochastic' not in result
         assert 'atr' not in result
-        assert 'obv' not in result
+        assert 'vwap' not in result
+        assert 'ichimoku' not in result
+        assert 'supertrend' not in result
+        assert 'keltner_channels' not in result
+        assert 'fibonacci' not in result
+        assert 'cmf' not in result
     
     def test_advanced_mode(self, sample_data):
         """Test calculate_all_indicators in advanced mode."""
         calculator = TechnicalIndicators(advanced_mode=True)
-        
+
         result = calculator.calculate_all_indicators(sample_data)
-        
+
         # Should have all indicators
         assert 'rsi' in result
         assert 'macd' in result
@@ -427,6 +681,14 @@ class TestCalculateAllIndicators:
         assert 'williams_r' in result
         assert 'cci' in result
         assert 'roc' in result
+        # New indicators
+        assert 'adx' in result
+        assert 'vwap' in result
+        assert 'ichimoku' in result
+        assert 'supertrend' in result
+        assert 'keltner_channels' in result
+        assert 'fibonacci' in result
+        assert 'cmf' in result
     
     def test_indicator_structure(self, sample_data):
         """Test that indicators have correct structure."""
